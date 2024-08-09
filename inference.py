@@ -22,10 +22,10 @@ def ply_loader(file_path):
     return data
 
 
-def visualize_pcd(points, class_id, show_label=False, window_title="Point Cloud"):
+def visualize_pcd(points, window_title="Point Cloud", class_id=None):
     point_cloud = o3d.geometry.PointCloud()
     point_cloud.points = o3d.utility.Vector3dVector(points[:, :3])  # XYZ
-    if show_label:
+    if class_id is not None:
         labels = points[:, 6]
         mask = (labels == class_id)
         colors = np.zeros_like(points[:, 3:6])
@@ -36,7 +36,7 @@ def visualize_pcd(points, class_id, show_label=False, window_title="Point Cloud"
     point_cloud.colors = o3d.utility.Vector3dVector(colors)
 
     vis = o3d.visualization.Visualizer()
-    vis.create_window(window_title, width=800, height=600)
+    vis.create_window(window_title)
     vis.add_geometry(point_cloud)
     vis.run()
     vis.destroy_window()
@@ -46,6 +46,9 @@ def process_pcd(pcd, class_id, voxel_size=0.02):
     coord = pcd[:, :3]
     feat = pcd[:, 3:6]  # color with range [0, 255], data_prepare will normalize it to [0, 1]
     label = pcd[:, 6]
+    # note: modifying coord, feat, label will change the original pcd,
+    #       in python it is passed by reference, not by value
+
     label[label != class_id] = 0
     label[label == class_id] = 1
 
@@ -56,10 +59,9 @@ def process_pcd(pcd, class_id, voxel_size=0.02):
     return x, offset, y, pcd_offset
 
 
-def npy2blocks(data, room_name, block_size=1, stride=1, min_npts=1000):
+def npy2blocks(data, room_name, save_path, block_size=1, stride=1, min_npts=1000):
     print(f"Pre-processing {room_name}")
     blocks_list = room2blocks(data, block_size=block_size, stride=stride, min_npts=min_npts)
-    save_path = "data/query/blocks"
 
     if os.path.exists(save_path):
         file_list = os.listdir(save_path)
@@ -71,7 +73,6 @@ def npy2blocks(data, room_name, block_size=1, stride=1, min_npts=1000):
     for i, block_data in enumerate(blocks_list):
         block_filename = room_name + "_block_" + str(i) + ".npy"
         np.save(os.path.join(save_path, block_filename), block_data)
-    return save_path
 
 
 class Evaluator:
@@ -122,16 +123,32 @@ class Evaluator:
 
 
 def main(args_in=None):
-    parser = argparse.ArgumentParser("COSeg Inference")
-    parser.add_argument("--support", default="data/support/3", help="Path to support data")
-    parser.add_argument("--query", default="data/query/query.ply", help="Path to query data")
+    ######################
+    # settings
+    ######################
+    filename_with_support_name = True
+    pred_save_dir = "working_dir/output"
+    if not os.path.exists(pred_save_dir):
+        os.makedirs(pred_save_dir)
 
+    query_blocks_dir = "data/query/blocks"
+    if not os.path.exists(query_blocks_dir):
+        os.makedirs(query_blocks_dir)
+
+    class_id = 2
+    ######################
+    # args
+    ######################
+
+    parser = argparse.ArgumentParser("COSeg Inference")
+    parser.add_argument("query", default="working_dir/query.ply", help="Path to query data")
+
+    parser.add_argument("--support", default="data/support", help="Path to support data")
     parser.add_argument("--cfg", default="config/s3dis_COSeg_fs.yaml", help="Path to configuration file")
     parser.add_argument("--weight", default="data/weight/s31_1w5s.pth", help="Path to model weight file")
     parser.add_argument("--voxel-size", type=float, default=0.02, help="Voxel size parameter, the lower the finer")
 
     parser.add_argument("--evaluate", action="store_true", help="Evaluate the result and save metrics")
-
     parser.add_argument("--vis-progress", action="store_true", help="Visualize each block during inference")
     parser.add_argument("--vis-result", action="store_true", help="Visualize the final result")
 
@@ -141,7 +158,7 @@ def main(args_in=None):
         args = args_in
 
     ######################
-    # init
+    # init model
     ######################
     support_dir = args.support
     query_file = args.query
@@ -176,7 +193,6 @@ def main(args_in=None):
     args_str = ', '.join([f"{arg}: {getattr(args, arg)}" for arg in vars(args)])
     print("Options:", args_str)
 
-    class_id = 2
     support_files = []
     for filename in os.listdir(support_dir):
         if filename.endswith(".npy"):
@@ -186,7 +202,8 @@ def main(args_in=None):
     for i in range(0, model_args.k_shot):
         pcd_support = np.load(support_files[i])
         if vis_progress:
-            visualize_pcd(pcd_support, class_id, window_title=f"Support {i + 1}")
+            visualize_pcd(pcd_support, f"Support data: {os.path.basename(support_files[i])}")
+            visualize_pcd(pcd_support, f"Support label: {os.path.basename(support_files[i])}", class_id)
         # load the first support
         if i == 0:
             support_x, support_offset, support_y, _ = process_pcd(pcd_support, class_id=class_id, voxel_size=voxel_size)
@@ -203,22 +220,22 @@ def main(args_in=None):
     # query
     ######################
     time0 = time.time()
+    query_type_ply = False
 
     if os.path.isdir(query_file):  # query_file is a directory containing npy blocks
         print("Using processed blocks as query")
         query_blocks_dir = query_file
     elif os.path.basename(query_file).endswith(".npy"):  # query_file is a npy file, convert to blocks
         print("Using npy file as query")
-        query_blocks_dir = npy2blocks(
-            np.load(query_file),
-            os.path.basename(query_file)[:-4]
-        )
+        npy2blocks(np.load(query_file),
+                   os.path.basename(query_file)[:-4],
+                   query_blocks_dir)
     elif os.path.basename(query_file).endswith(".ply"):  # query_file is a ply file, convert to npy and then blocks
         print("Using ply file as query")
-        query_blocks_dir = npy2blocks(
-            ply_loader(query_file),
-            os.path.basename(query_file)[:-4]
-        )
+        npy2blocks(ply_loader(query_file),
+                   os.path.basename(query_file)[:-4],
+                   query_blocks_dir)
+        query_type_ply = True
     else:
         raise FileNotFoundError(f"Unsupported query file : {query_file}")
 
@@ -234,7 +251,7 @@ def main(args_in=None):
     colors = []
     evaluator = None
     if evaluate:
-        if os.path.basename(query_file).endswith(".ply"):
+        if query_type_ply:
             print("Cannot evaluate on ply file, skipping evaluation")
             evaluate = False
         else:
@@ -245,7 +262,9 @@ def main(args_in=None):
         # load and process query
         pcd_query = np.load(query_block)
         if vis_progress:
-            visualize_pcd(pcd_query, class_id, window_title=f"Query {i + 1}")
+            visualize_pcd(pcd_query, f"Query data: {os.path.basename(query_block)}")
+            if not query_type_ply:
+                visualize_pcd(pcd_query, f"Query label: {os.path.basename(query_block)}", class_id)
         query_x, query_offset, query_y, pcd_offset = process_pcd(pcd_query, class_id=class_id, voxel_size=voxel_size)
         query_y = query_y.cuda(non_blocking=True)
 
@@ -284,7 +303,7 @@ def main(args_in=None):
             pcd_pred.points = o3d.utility.Vector3dVector(coord)
             pcd_pred.colors = o3d.utility.Vector3dVector(color)
             vis = o3d.visualization.Visualizer()
-            vis.create_window(f"Prediction {i + 1}", width=800, height=600)
+            vis.create_window(f"Prediction {os.path.basename(query_block)}")
             vis.add_geometry(pcd_pred)
             vis.run()
             vis.destroy_window()
@@ -292,19 +311,14 @@ def main(args_in=None):
     ######################
     # save
     ######################
-    filename_with_support_name = True
-
-    save_dir = "working_dir/output"
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
 
     if os.path.isdir(query_file):
-        out_filename = os.path.join(save_dir, os.path.basename(query_file))
+        out_filename = os.path.join(pred_save_dir, os.path.basename(query_file))
     else:
-        out_filename = os.path.join(save_dir, os.path.basename(query_file)[:-4])
+        out_filename = os.path.join(pred_save_dir, os.path.basename(query_file)[:-4])
 
     if filename_with_support_name:
-        out_filename += "_" + os.path.basename(support_dir)
+        out_filename += "_sup_" + os.path.basename(support_dir)
 
     time1 = time.time()
     if evaluate:
