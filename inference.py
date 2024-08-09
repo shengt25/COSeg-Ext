@@ -10,29 +10,29 @@ import time
 import argparse
 
 
-def ply_loader(file_path, fg_label=2, bg_label=12):
+def ply_loader(file_path):
     pcd = o3d.io.read_point_cloud(file_path)
     points = np.asarray(pcd.points)
     colors = np.asarray(pcd.colors)
     # XYZRGBL
     data = np.zeros((points.shape[0], 7))
-    # XYZ
     data[:, 0:3] = points
-    # set all colors to 200 (gray)
-    data[:, 3:6] = 200
-    # if the point is green, set the label
-    is_green = np.all(colors == [0.0, 1.0, 0.0], axis=1)
-    data[:, 6] = np.where(is_green, fg_label, bg_label)
+    data[:, 3:6] = colors * 255
+    data[:, 6] = -1  # set all labels to -1
     return data
 
 
-def visualize_pcd(points, class_id, window_title="Point Cloud"):
+def visualize_pcd(points, class_id, show_label=False, window_title="Point Cloud"):
     point_cloud = o3d.geometry.PointCloud()
     point_cloud.points = o3d.utility.Vector3dVector(points[:, :3])  # XYZ
-    colors = points[:, 3:6] / 255.0  # RGB
-    labels = points[:, 6]
-    mask = (labels == class_id)
-    colors[mask] = [0, 1, 0]
+    if show_label:
+        labels = points[:, 6]
+        mask = (labels == class_id)
+        colors = np.zeros_like(points[:, 3:6])
+        colors[mask] = [0, 1, 0]
+    else:
+        colors = points[:, 3:6] / 255.0  # RGB
+
     point_cloud.colors = o3d.utility.Vector3dVector(colors)
 
     vis = o3d.visualization.Visualizer()
@@ -44,7 +44,7 @@ def visualize_pcd(points, class_id, window_title="Point Cloud"):
 
 def process_pcd(pcd, class_id, voxel_size=0.02):
     coord = pcd[:, :3]
-    feat = pcd[:, 3:6]
+    feat = pcd[:, 3:6]  # color with range [0, 255], data_prepare will normalize it to [0, 1]
     label = pcd[:, 6]
     label[label != class_id] = 0
     label[label == class_id] = 1
@@ -130,9 +130,10 @@ def main(args_in=None):
     parser.add_argument("--weight", default="data/weight/s31_1w5s.pth", help="Path to model weight file")
     parser.add_argument("--voxel-size", type=float, default=0.02, help="Voxel size parameter, the lower the finer")
 
+    parser.add_argument("--evaluate", action="store_true", help="Evaluate the result and save metrics")
+
     parser.add_argument("--vis-progress", action="store_true", help="Visualize each block during inference")
     parser.add_argument("--vis-result", action="store_true", help="Visualize the final result")
-    parser.add_argument("--evaluate", action="store_true", help="Evaluate the result and save metrics")
 
     if args_in is None:
         args = parser.parse_args()
@@ -172,6 +173,9 @@ def main(args_in=None):
     # support
     ######################
 
+    args_str = ', '.join([f"{arg}: {getattr(args, arg)}" for arg in vars(args)])
+    print("Options:", args_str)
+
     class_id = 2
     support_files = []
     for filename in os.listdir(support_dir):
@@ -200,28 +204,28 @@ def main(args_in=None):
     ######################
     time0 = time.time()
 
-    if os.path.isdir(query_file):  # query_file is a directory containing blocks
+    if os.path.isdir(query_file):  # query_file is a directory containing npy blocks
         print("Using processed blocks as query")
-        query_dir = query_file
-    elif os.path.basename(query_file).endswith(".npy"):  # query_file is a npy file
+        query_blocks_dir = query_file
+    elif os.path.basename(query_file).endswith(".npy"):  # query_file is a npy file, convert to blocks
         print("Using npy file as query")
-        query_dir = npy2blocks(
+        query_blocks_dir = npy2blocks(
             np.load(query_file),
             os.path.basename(query_file)[:-4]
         )
-    elif os.path.basename(query_file).endswith(".ply"):  # query_file is a ply file
+    elif os.path.basename(query_file).endswith(".ply"):  # query_file is a ply file, convert to npy and then blocks
         print("Using ply file as query")
-        query_dir = npy2blocks(
-            ply_loader(query_file, fg_label=class_id),
+        query_blocks_dir = npy2blocks(
+            ply_loader(query_file),
             os.path.basename(query_file)[:-4]
         )
     else:
-        raise FileNotFoundError(f"Query file error: {query_file}")
+        raise FileNotFoundError(f"Unsupported query file : {query_file}")
 
     query_blocks = []
-    for filename in os.listdir(query_dir):
+    for filename in os.listdir(query_blocks_dir):
         if filename.endswith(".npy"):
-            query_blocks.append(os.path.join(query_dir, filename))
+            query_blocks.append(os.path.join(query_blocks_dir, filename))
 
     if len(query_blocks) == 0:
         raise FileNotFoundError(f"Error, no query blocks found")
@@ -230,8 +234,13 @@ def main(args_in=None):
     colors = []
     evaluator = None
     if evaluate:
-        evaluator = Evaluator()
+        if os.path.basename(query_file).endswith(".ply"):
+            print("Cannot evaluate on ply file, skipping evaluation")
+            evaluate = False
+        else:
+            evaluator = Evaluator()
 
+    print("")  # newline
     for i, query_block in enumerate(query_blocks):
         # load and process query
         pcd_query = np.load(query_block)
@@ -255,13 +264,16 @@ def main(args_in=None):
         if evaluate:
             evaluator.update(output, query_y)
 
-        print(f"Processing {i + 1}/{len(query_blocks)} blocks")
+        progress_str = f"Processing {os.path.basename(query_file)}: {(i + 1) * 100 / len(query_blocks):.2f}% ({i + 1}/{len(query_blocks)} blocks)"
+        print(f"\r{' ' * len(progress_str)}", end='\r')  # clear line
+        print(progress_str, end='\r')
+
         # append to point_clouds
         output = output.cpu().numpy()
         query_x = query_x.cpu().numpy()
         coord = query_x[:, :3]  # XYZ
         coord += pcd_offset
-        color_map = {0: [0, 0, 0], 1: [0, 1, 0]}  # map：0->black，1->green
+        color_map = {0: [0, 0, 0], 1: [0, 1, 0]}  # map：0->grey，1->green
         color = np.array([color_map[value] for value in output])
 
         coords.extend(coord)
