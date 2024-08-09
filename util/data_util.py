@@ -580,3 +580,50 @@ def data_prepare_v105(
     feat = torch.FloatTensor(feat) / 255.0
     label = torch.LongTensor(label)
     return coord, feat, label
+
+def data_prepare_v101_1(
+    coord,
+    feat,
+    label,
+    split="train",
+    voxel_size=0.04,
+    voxel_max=None,
+    transform=None,
+    shuffle_index=False,
+    sampled_class=None,
+):
+    """
+    The duplicated function of data_prepare_v101, but one more output in return:
+    The coordinate offset of current block, for the purpose of recovering blocks of point cloud to whole scene.
+    """
+    offset = 0
+    if transform:
+        # coord, feat, label = transform(coord, feat, label)
+        coord, feat = transform(coord, feat)
+
+    if voxel_size:
+        coord_min = np.min(coord, 0)
+        coord -= coord_min
+        uniq_idx = voxelize(coord, voxel_size)
+        coord, feat, label = coord[uniq_idx], feat[uniq_idx], label[uniq_idx]
+        offset += coord_min
+    if voxel_max and label.shape[0] > voxel_max:
+        crop_idx = np.random.choice(
+            np.arange(label.shape[0]), voxel_max, replace=False
+        )
+        coord, feat, label = coord[crop_idx], feat[crop_idx], label[crop_idx]
+
+
+    if shuffle_index:
+        shuf_idx = np.arange(coord.shape[0])
+        np.random.shuffle(shuf_idx)
+        coord, feat, label = coord[shuf_idx], feat[shuf_idx], label[shuf_idx]
+
+    coord_min = np.min(coord, 0)
+    offset += coord_min
+    coord -= coord_min
+    coord = torch.FloatTensor(coord)
+    feat = torch.FloatTensor(feat) / 255.0
+    label = torch.LongTensor(label)
+
+    return coord, feat, label, offset
