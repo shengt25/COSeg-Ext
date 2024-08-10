@@ -141,7 +141,7 @@ def main(args_in=None):
     ######################
 
     parser = argparse.ArgumentParser("COSeg Inference")
-    parser.add_argument("query", default="working_dir/query.ply", help="Path to query data")
+    parser.add_argument("query", default="working_dir/source", help="Path to query data")
 
     parser.add_argument("--support", default="data/support", help="Path to support data")
     parser.add_argument("--cfg", default="config/s3dis_COSeg_fs.yaml", help="Path to configuration file")
@@ -222,7 +222,10 @@ def main(args_in=None):
     time0 = time.time()
     query_type_ply = False
 
-    if os.path.isdir(query_file):  # query_file is a directory containing npy blocks
+    if not os.path.exists(query_file):
+        print(f"Error, query file {query_file} does not exist")
+        return
+    elif os.path.isdir(query_file):  # query_file is a directory containing npy blocks
         print("Using processed blocks as query")
         query_blocks_dir = query_file
     elif os.path.basename(query_file).endswith(".npy"):  # query_file is a npy file, convert to blocks
@@ -237,7 +240,8 @@ def main(args_in=None):
                    query_blocks_dir)
         query_type_ply = True
     else:
-        raise FileNotFoundError(f"Unsupported query file : {query_file}")
+        print(f"Unsupported query file : {query_file}")
+        return
 
     query_blocks = []
     for filename in os.listdir(query_blocks_dir):
@@ -245,7 +249,8 @@ def main(args_in=None):
             query_blocks.append(os.path.join(query_blocks_dir, filename))
 
     if len(query_blocks) == 0:
-        raise FileNotFoundError(f"Error, no query blocks found")
+        print(f"Error, no query blocks found")
+        return
 
     coords = []
     colors = []
@@ -292,7 +297,7 @@ def main(args_in=None):
         query_x = query_x.cpu().numpy()
         coord = query_x[:, :3]  # XYZ
         coord += pcd_offset
-        color_map = {0: [0, 0, 0], 1: [0, 1, 0]}  # map：0->grey，1->green
+        color_map = {0: [0, 0, 0], 1: [0, 1, 0]}  # map：0->black，1->green
         color = np.array([color_map[value] for value in output])
 
         coords.extend(coord)
