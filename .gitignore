@@ -94,6 +94,5 @@ output/*
 */__pycache__
 data/
 
-*.sh
 logs
 val.py
