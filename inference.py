@@ -148,7 +148,6 @@ def main(args_in=None):
     ######################
     # settings
     ######################
-    filename_with_support_name = True
     pred_save_dir = "working_dir/output"
     if not os.path.exists(pred_save_dir):
         os.makedirs(pred_save_dir)
@@ -351,9 +350,6 @@ def main(args_in=None):
         pred_base_filename = os.path.join(pred_save_dir, os.path.basename(query_file))
     else:
         pred_base_filename = os.path.join(pred_save_dir, os.path.basename(query_file)[:-4])
-
-    if filename_with_support_name:
-        pred_base_filename += "_sup" + os.path.basename(support_dir)
 
     time1 = time.time()
     if evaluate:
