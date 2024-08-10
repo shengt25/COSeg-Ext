@@ -8,6 +8,55 @@ from preprocess.room2blocks import room2blocks
 import os
 import time
 import argparse
+import subprocess
+import re
+
+
+class Evaluator:
+    def __init__(self):
+        self.TP = 0
+        self.TN = 0
+        self.FP = 0
+        self.FN = 0
+        self.total_points = 0
+
+    def update(self, predictions, ground_truth):
+        predictions = predictions.clone().detach()
+        ground_truth = ground_truth.clone().detach()
+
+        tp = torch.sum((predictions == 1) & (ground_truth == 1)).item()
+        tn = torch.sum((predictions == 0) & (ground_truth == 0)).item()
+        fp = torch.sum((predictions == 1) & (ground_truth == 0)).item()
+        fn = torch.sum((predictions == 0) & (ground_truth == 1)).item()
+
+        self.TP += tp
+        self.TN += tn
+        self.FP += fp
+        self.FN += fn
+        self.total_points += len(ground_truth)
+
+    def compute_metrics(self):
+        accuracy = (self.TP + self.TN) / self.total_points if self.total_points != 0 else 0
+        precision = self.TP / (self.TP + self.FP) if (self.TP + self.FP) != 0 else 0
+        recall = self.TP / (self.TP + self.FN) if (self.TP + self.FN) != 0 else 0
+        specificity = self.TN / (self.TN + self.FP) if (self.TN + self.FP) != 0 else 0
+        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) != 0 else 0
+        balanced_accuracy = (recall + specificity) / 2
+        mcc_numerator = self.TP * self.TN - self.FP * self.FN
+        mcc_denominator = ((self.TP + self.FP) * (self.TP + self.FN) * (self.TN + self.FP) * (self.TN + self.FN)) ** 0.5
+        mcc = mcc_numerator / mcc_denominator if mcc_denominator != 0 else 0
+        iou = self.TP / (self.TP + self.FP + self.FN) if (self.TP + self.FP + self.FN) != 0 else 0
+
+        return {
+            'accuracy': accuracy,
+            'precision': precision,
+            'iou': iou,
+            'recall': recall,
+            'specificity': specificity,
+            'f1_score': f1_score,
+            'balanced_accuracy': balanced_accuracy,
+            'mcc': mcc
+        }
 
 
 def ply_loader(file_path):
@@ -75,51 +124,24 @@ def npy2blocks(data, room_name, save_path, block_size=1, stride=1, min_npts=1000
         np.save(os.path.join(save_path, block_filename), block_data)
 
 
-class Evaluator:
-    def __init__(self):
-        self.TP = 0
-        self.TN = 0
-        self.FP = 0
-        self.FN = 0
-        self.total_points = 0
+def get_vram_usage():
+    # get the process ID of the current process
+    pid = os.getpid()
 
-    def update(self, predictions, ground_truth):
-        predictions = predictions.clone().detach()
-        ground_truth = ground_truth.clone().detach()
+    command = "nvidia-smi --query-compute-apps=pid,used_memory --format=csv"
+    output = subprocess.check_output(command, shell=True).decode('utf-8')
 
-        tp = torch.sum((predictions == 1) & (ground_truth == 1)).item()
-        tn = torch.sum((predictions == 0) & (ground_truth == 0)).item()
-        fp = torch.sum((predictions == 1) & (ground_truth == 0)).item()
-        fn = torch.sum((predictions == 0) & (ground_truth == 1)).item()
-
-        self.TP += tp
-        self.TN += tn
-        self.FP += fp
-        self.FN += fn
-        self.total_points += len(ground_truth)
-
-    def compute_metrics(self):
-        accuracy = (self.TP + self.TN) / self.total_points if self.total_points != 0 else 0
-        precision = self.TP / (self.TP + self.FP) if (self.TP + self.FP) != 0 else 0
-        recall = self.TP / (self.TP + self.FN) if (self.TP + self.FN) != 0 else 0
-        specificity = self.TN / (self.TN + self.FP) if (self.TN + self.FP) != 0 else 0
-        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) != 0 else 0
-        balanced_accuracy = (recall + specificity) / 2
-        mcc_numerator = self.TP * self.TN - self.FP * self.FN
-        mcc_denominator = ((self.TP + self.FP) * (self.TP + self.FN) * (self.TN + self.FP) * (self.TN + self.FN)) ** 0.5
-        mcc = mcc_numerator / mcc_denominator if mcc_denominator != 0 else 0
-        iou = self.TP / (self.TP + self.FP + self.FN) if (self.TP + self.FP + self.FN) != 0 else 0
-
-        return {
-            'accuracy': accuracy,
-            'precision': precision,
-            'iou': iou,
-            'recall': recall,
-            'specificity': specificity,
-            'f1_score': f1_score,
-            'balanced_accuracy': balanced_accuracy,
-            'mcc': mcc
-        }
+    for line in output.splitlines():
+        if str(pid) in line:
+            match = re.search(r'(\d+)\s+MiB', line)
+            if match:
+                used_memory = int(match.group(1))
+            else:
+                return -1
+            break
+    else:
+        return -1
+    return used_memory
 
 
 def main(args_in=None):
@@ -252,20 +274,26 @@ def main(args_in=None):
         print(f"Error, no query blocks found")
         return
 
-    coords = []
-    colors = []
     evaluator = None
+    max_vram_usage = None
     if evaluate:
+        max_vram_usage = -1
         if query_type_ply:
-            print("Cannot evaluate on ply file, skipping evaluation")
-            evaluate = False
+            print("Using ply file, only time, points count and vram usage will be recorded")
         else:
             evaluator = Evaluator()
 
     print("")  # newline
+
+    coords = []
+    colors = []
+    points_count = 0
     for i, query_block in enumerate(query_blocks):
         # load and process query
         pcd_query = np.load(query_block)
+        if evaluate:
+            # points before processing, because process_pcd will change the points (pass by reference)
+            points_count += pcd_query.shape[0]
         if vis_progress:
             visualize_pcd(pcd_query, f"Query data: {os.path.basename(query_block)}")
             if not query_type_ply:
@@ -286,7 +314,9 @@ def main(args_in=None):
         output = output.max(1)[1].squeeze(0)  # output: 1, c, pts
 
         if evaluate:
-            evaluator.update(output, query_y)
+            max_vram_usage = max(max_vram_usage, get_vram_usage())
+            if evaluator is not None:
+                evaluator.update(output, query_y)
 
         progress_str = f"Processing {os.path.basename(query_file)}: {(i + 1) * 100 / len(query_blocks):.2f}% ({i + 1}/{len(query_blocks)} blocks)"
         print(f"\r{' ' * len(progress_str)}", end='\r')  # clear line
@@ -327,12 +357,20 @@ def main(args_in=None):
 
     time1 = time.time()
     if evaluate:
-        metrics = evaluator.compute_metrics()
-        print_info = (f"Accuracy: {metrics['accuracy']:.4f}, Precision: {metrics['precision']:.4f}, "
-                      f"IoU: {metrics['iou']:.4f}, Recall: {metrics['recall']:.4f}, Specificity: "
-                      f"{metrics['specificity']:.4f}, F1 Score: {metrics['f1_score']:.4f}, "
-                      f"Balanced Accuracy: {metrics['balanced_accuracy']:.4f}, MCC: {metrics['mcc']:.4f}, "
-                      f"Time: {time1 - time0:.2f}s")
+        formatted_points_count = f"{points_count:_}".replace('_', ' ')
+
+        if evaluator is not None:
+            metrics = evaluator.compute_metrics()
+
+            print_info = (f"Accuracy: {metrics['accuracy']:.4f}, Precision: {metrics['precision']:.4f}, "
+                          f"IoU: {metrics['iou']:.4f}, Recall: {metrics['recall']:.4f}, Specificity: "
+                          f"{metrics['specificity']:.4f}, F1 Score: {metrics['f1_score']:.4f}, "
+                          f"Balanced Accuracy: {metrics['balanced_accuracy']:.4f}, MCC: {metrics['mcc']:.4f}, "
+                          f"Time: {time1 - time0:.2f}s, Points Count: {formatted_points_count},"
+                          f" Max VRAM Usage: {max_vram_usage} MB")
+        else:
+            print_info = (f"Time: {time1 - time0:.2f}s, Points Count: {formatted_points_count}, "
+                          f"Max VRAM Usage: {max_vram_usage} MiB")
 
         print(print_info)
         pred_metrics_filename = pred_base_filename + "_metrics.txt"
