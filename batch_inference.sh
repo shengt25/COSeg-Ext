@@ -1,0 +1,1 @@
+python3 batch_inference.py working_dir/source --support data/support/10
