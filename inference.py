@@ -313,12 +313,12 @@ def main(args_in=None):
     ######################
 
     if os.path.isdir(query_file):
-        out_filename = os.path.join(pred_save_dir, os.path.basename(query_file))
+        pred_base_filename = os.path.join(pred_save_dir, os.path.basename(query_file))
     else:
-        out_filename = os.path.join(pred_save_dir, os.path.basename(query_file)[:-4])
+        pred_base_filename = os.path.join(pred_save_dir, os.path.basename(query_file)[:-4])
 
     if filename_with_support_name:
-        out_filename += "_sup_" + os.path.basename(support_dir)
+        pred_base_filename += "_sup" + os.path.basename(support_dir)
 
     time1 = time.time()
     if evaluate:
@@ -330,15 +330,30 @@ def main(args_in=None):
                       f"Time: {time1 - time0:.2f}s")
 
         print(print_info)
-        with open(out_filename + "_metrics.txt", "w") as f:
+        pred_metrics_filename = pred_base_filename + "_metrics.txt"
+        if os.path.exists(pred_metrics_filename):
+            i = 1
+            while os.path.exists(pred_metrics_filename):
+                pred_metrics_filename = pred_base_filename + f"_metrics_{i}.txt"
+                i += 1
+        with open(pred_metrics_filename, "w") as f:
             f.write(print_info)
-        print(f"Metrics saved to {out_filename}_metrics.txt")
+
+        print(f"Metrics saved to {pred_metrics_filename}")
 
     pcd_pred_whole = o3d.geometry.PointCloud()
     pcd_pred_whole.points = o3d.utility.Vector3dVector(coords)
     pcd_pred_whole.colors = o3d.utility.Vector3dVector(colors)
-    o3d.io.write_point_cloud(out_filename + "_result.ply", pcd_pred_whole)
-    print(f"Output saved to {out_filename}_result.ply")
+
+    pred_ply_filename = pred_base_filename + "_result.ply"
+    if os.path.exists(pred_ply_filename):
+        i = 1
+        while os.path.exists(pred_ply_filename):
+            pred_ply_filename = pred_base_filename + f"_result_{i}.ply"
+            i += 1
+
+    o3d.io.write_point_cloud(pred_ply_filename, pcd_pred_whole)
+    print(f"Output saved to {pred_ply_filename}")
 
     if vis_result:
         o3d.visualization.draw_geometries([pcd_pred_whole])
