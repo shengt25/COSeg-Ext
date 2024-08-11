@@ -5,6 +5,9 @@ from inference import npy2blocks
 
 
 def main():
+    """
+    Batch preprocess the room data to block data in advance, so the block data can be re-used or viewed.
+    """
     if len(sys.argv) != 2:
         print("Usage: python batch_room2block.py <file_dir>")
         sys.exit(1)
@@ -16,7 +19,7 @@ def main():
             continue
 
         data = np.load(os.path.join(file_dir, file_name))
-        save_path = "working_dir/source/" + os.path.basename(file_name)[:-4]
+        save_path = "working_dir/input/" + os.path.basename(file_name)[:-4]
         npy2blocks(data, os.path.basename(file_name)[:-4], save_path,
                    block_size=1, stride=1, min_npts=1000)
         print(f"Saved block data to {save_path}")

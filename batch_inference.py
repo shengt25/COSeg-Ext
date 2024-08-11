@@ -5,7 +5,7 @@ import inference
 
 def batch():
     parser = argparse.ArgumentParser(description="Wrapper script for COSeg Inference")
-    parser.add_argument("query", default="working_dir/query", help="Path to query directory")
+    parser.add_argument("query", default="working_dir/input", help="Path to query directory")
 
     parser.add_argument("--support", default="data/support", help="Path to support data")
     parser.add_argument("--evaluate", action="store_true", help="Evaluate the result and save metrics")

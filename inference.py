@@ -162,7 +162,7 @@ def main(args_in=None):
     ######################
 
     parser = argparse.ArgumentParser("COSeg Inference")
-    parser.add_argument("query", default="working_dir/source", help="Path to query data")
+    parser.add_argument("query", default="working_dir/input", help="Path to query data")
 
     parser.add_argument("--support", default="data/support", help="Path to support data")
     parser.add_argument("--cfg", default="config/s3dis_COSeg_fs.yaml", help="Path to configuration file")
@@ -220,6 +220,9 @@ def main(args_in=None):
             support_files.append(os.path.join(support_dir, filename))
 
     support_x, support_offset, support_y = None, None, None
+    if len(support_files) == 0:
+        print(f"Error, no support data found in {support_dir}")
+        return
     for i in range(0, model_args.k_shot):
         pcd_support = np.load(support_files[i])
         if vis_progress:

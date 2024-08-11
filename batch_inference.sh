@@ -1,1 +1,3 @@
-python3 batch_inference.py working_dir/source --support data/support/10
+#!/bin/sh
+
+python3 batch_inference.py working_dir/input
