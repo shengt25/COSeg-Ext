@@ -353,9 +353,9 @@ def main(args_in=None):
 
     # clean up temp query blocks
     if os.path.exists(query_blocks_dir_default):
-        file_list = os.listdir(query_blocks_dir)
+        file_list = os.listdir(query_blocks_dir_default)
         for file in file_list:
-            os.remove(os.path.join(query_blocks_dir, file))
+            os.remove(os.path.join(query_blocks_dir_default, file))
 
     if os.path.isdir(query_file):
         pred_base_filename = os.path.join(pred_save_dir, os.path.basename(query_file))
