@@ -349,6 +349,12 @@ def main(args_in=None):
     # save
     ######################
 
+    # clean up query blocks
+    if os.path.exists(query_blocks_dir):
+        file_list = os.listdir(query_blocks_dir)
+        for file in file_list:
+            os.remove(os.path.join(query_blocks_dir, file))
+
     if os.path.isdir(query_file):
         pred_base_filename = os.path.join(pred_save_dir, os.path.basename(query_file))
     else:
