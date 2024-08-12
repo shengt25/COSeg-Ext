@@ -152,9 +152,7 @@ def main(args_in=None):
     if not os.path.exists(pred_save_dir):
         os.makedirs(pred_save_dir)
 
-    query_blocks_dir = "data/query/blocks"
-    if not os.path.exists(query_blocks_dir):
-        os.makedirs(query_blocks_dir)
+    query_blocks_dir_default = "data/query/blocks"
 
     class_id = 2
     ######################
@@ -245,6 +243,10 @@ def main(args_in=None):
     ######################
     time0 = time.time()
     query_type_ply = False
+
+    query_blocks_dir = query_blocks_dir_default
+    if not os.path.exists(query_blocks_dir):
+        os.makedirs(query_blocks_dir)
 
     if not os.path.exists(query_file):
         print(f"Error, query file {query_file} does not exist")
@@ -349,8 +351,8 @@ def main(args_in=None):
     # save
     ######################
 
-    # clean up query blocks
-    if os.path.exists(query_blocks_dir):
+    # clean up temp query blocks
+    if os.path.exists(query_blocks_dir_default):
         file_list = os.listdir(query_blocks_dir)
         for file in file_list:
             os.remove(os.path.join(query_blocks_dir, file))
