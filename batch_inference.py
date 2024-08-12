@@ -7,6 +7,7 @@ def batch():
     parser = argparse.ArgumentParser(description="Wrapper script for COSeg Inference")
     parser.add_argument("query", default="working_dir/input", help="Path to query directory")
 
+    parser.add_argument("--type", default="ply", help="Query file type: ply, npy or blocks")
     parser.add_argument("--support", default="data/support", help="Path to support data")
     parser.add_argument("--evaluate", action="store_true", help="Evaluate the result and save metrics")
 
@@ -16,11 +17,20 @@ def batch():
     batch_args = parser.parse_args()
 
     batch_query_path = batch_args.query
+    file_type = batch_args.type
 
     if not os.path.exists(batch_query_path):
         raise ValueError(f"Query path {batch_query_path} does not exist.")
 
     batch_query_list = os.listdir(batch_query_path)
+    if file_type == "ply":
+        batch_query_list = [f for f in batch_query_list if f.endswith(".ply")]
+    elif file_type == "npy":
+        batch_query_list = [f for f in batch_query_list if f.endswith(".npy")]
+    elif file_type == "blocks":
+        batch_query_list = [f for f in batch_query_list if os.path.isdir(os.path.join(batch_query_path, f))]
+    else:
+        raise ValueError(f"Unsupported query file type: {file_type}, please use ply, npy or blocks.")
 
     count = len(batch_query_list)
 
@@ -30,6 +40,7 @@ def batch():
     print(f"\nBatch inference started, total {count}: {batch_query_list}")
 
     for i, query in enumerate(batch_query_list):
+
         print(f"\n---Current: {query} ({i + 1}/{count})---")
         batch_args.query = os.path.join(batch_query_path, query)
         batch_args.vis_progress = False
