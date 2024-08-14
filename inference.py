@@ -152,7 +152,7 @@ def main(args_in=None):
     if not os.path.exists(pred_save_dir):
         os.makedirs(pred_save_dir)
 
-    query_blocks_dir_default = "data/query/blocks"
+    query_blocks_dir = "data/query/blocks"
 
     class_id = 2
     ######################
@@ -242,29 +242,26 @@ def main(args_in=None):
     # query
     ######################
     time0 = time.time()
-    query_type_ply = False
-
-    query_blocks_dir = query_blocks_dir_default
-    if not os.path.exists(query_blocks_dir):
-        os.makedirs(query_blocks_dir)
-
+    query_file_type = ""
     if not os.path.exists(query_file):
         print(f"Error, query file {query_file} does not exist")
         return
     elif os.path.isdir(query_file):  # query_file is a directory containing npy blocks
         print("Using processed blocks as query")
         query_blocks_dir = query_file
+        query_file_type = "blocks"
     elif os.path.basename(query_file).endswith(".npy"):  # query_file is a npy file, convert to blocks
         print("Using npy file as query")
         npy2blocks(np.load(query_file),
                    os.path.basename(query_file)[:-4],
                    query_blocks_dir)
+        query_file_type = "npy"
     elif os.path.basename(query_file).endswith(".ply"):  # query_file is a ply file, convert to npy and then blocks
         print("Using ply file as query")
         npy2blocks(ply_loader(query_file),
                    os.path.basename(query_file)[:-4],
                    query_blocks_dir)
-        query_type_ply = True
+        query_file_type = "ply"
     else:
         print(f"Unsupported query file : {query_file}")
         return
@@ -282,7 +279,7 @@ def main(args_in=None):
     max_vram_usage = None
     if evaluate:
         max_vram_usage = -1
-        if query_type_ply:
+        if query_file_type == "ply":
             print("Using ply file, only time, points count and vram usage will be recorded")
         else:
             evaluator = Evaluator()
@@ -300,7 +297,7 @@ def main(args_in=None):
             points_count += pcd_query.shape[0]
         if vis_progress:
             visualize_pcd(pcd_query, f"Query data: {os.path.basename(query_block)}")
-            if not query_type_ply:
+            if query_file_type == "npy" or query_file_type == "blocks":
                 visualize_pcd(pcd_query, f"Query label: {os.path.basename(query_block)}", class_id)
         query_x, query_offset, query_y, pcd_offset = process_pcd(pcd_query, class_id=class_id, voxel_size=voxel_size)
         query_y = query_y.cuda(non_blocking=True)
@@ -351,11 +348,11 @@ def main(args_in=None):
     # save
     ######################
 
-    # clean up temp query blocks
-    if os.path.exists(query_blocks_dir_default):
-        file_list = os.listdir(query_blocks_dir_default)
+    # clean up temp query blocks when not using blocks directly
+    if query_file_type == "ply" or query_file_type == "npy":
+        file_list = os.listdir(query_blocks_dir)
         for file in file_list:
-            os.remove(os.path.join(query_blocks_dir_default, file))
+            os.remove(os.path.join(query_blocks_dir, file))
 
     if os.path.isdir(query_file):
         pred_base_filename = os.path.join(pred_save_dir, os.path.basename(query_file))
@@ -363,6 +360,20 @@ def main(args_in=None):
         pred_base_filename = os.path.join(pred_save_dir, os.path.basename(query_file)[:-4])
 
     time1 = time.time()
+
+    pcd_pred_whole = o3d.geometry.PointCloud()
+    pcd_pred_whole.points = o3d.utility.Vector3dVector(coords)
+    pcd_pred_whole.colors = o3d.utility.Vector3dVector(colors)
+
+    suffix_num = 0
+    pred_ply_filename = pred_base_filename + "_result.ply"
+    while os.path.exists(pred_ply_filename):
+        suffix_num += 1
+        pred_ply_filename = pred_base_filename + f"_result_{suffix_num}.ply"
+
+    o3d.io.write_point_cloud(pred_ply_filename, pcd_pred_whole)
+    print(f"Output saved to {pred_ply_filename}")
+
     if evaluate:
         formatted_points_count = f"{points_count:_}".replace('_', ' ')
 
@@ -380,30 +391,14 @@ def main(args_in=None):
                           f"Max VRAM Usage: {max_vram_usage} MiB")
 
         print(print_info)
-        pred_metrics_filename = pred_base_filename + "_metrics.txt"
-        if os.path.exists(pred_metrics_filename):
-            i = 1
-            while os.path.exists(pred_metrics_filename):
-                pred_metrics_filename = pred_base_filename + f"_metrics_{i}.txt"
-                i += 1
+        if suffix_num > 0:
+            pred_metrics_filename = pred_base_filename + f"_metrics_{suffix_num}.txt"
+        else:
+            pred_metrics_filename = pred_base_filename + "_metrics.txt"
         with open(pred_metrics_filename, "w") as f:
             f.write(print_info)
 
         print(f"Metrics saved to {pred_metrics_filename}")
-
-    pcd_pred_whole = o3d.geometry.PointCloud()
-    pcd_pred_whole.points = o3d.utility.Vector3dVector(coords)
-    pcd_pred_whole.colors = o3d.utility.Vector3dVector(colors)
-
-    pred_ply_filename = pred_base_filename + "_result.ply"
-    if os.path.exists(pred_ply_filename):
-        i = 1
-        while os.path.exists(pred_ply_filename):
-            pred_ply_filename = pred_base_filename + f"_result_{i}.ply"
-            i += 1
-
-    o3d.io.write_point_cloud(pred_ply_filename, pcd_pred_whole)
-    print(f"Output saved to {pred_ply_filename}")
 
     if vis_result:
         o3d.visualization.draw_geometries([pcd_pred_whole])
