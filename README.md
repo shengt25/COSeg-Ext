@@ -49,6 +49,8 @@ pip install tensorboardX==2.6
 pip install numpy==1.20.3
 ```
 
+For incompatiable installation issues, such as wanting a higher torch version (e.g., 2.1.0) but conflicts with torch_points3d, please refer to this thread: https://github.com/ZhaochongAn/COSeg/issues/16 or feel free to open a new discussion for further assistance.
+
 2. **Compile pointops**
 
 Ensure you have `gcc`, `cuda`, and `nvcc` installed. Compile and install pointops2 as follows:
@@ -203,4 +205,7 @@ For any questions or issues, feel free to reach out!
 
 **Communication Group (WeChat)**:
 
-<img src="https://files.mdnice.com/user/67517/95916a7e-425d-48bd-9e16-1c64f3db200c.png" width="200"/>
+<div style="text-align: left; ">
+  <img src="https://files.mdnice.com/user/67517/0e3b61e3-08aa-4c42-9cfc-21052641cbfd.png" width="200" style="display: inline-block; vertical-align: top;"/>
+  <img src="https://files.mdnice.com/user/67517/068822c4-cece-4ac5-b1db-5c138a91a718.png" width="200" style="display: inline-block; vertical-align: top;"/>
+</div>
